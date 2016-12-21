@@ -1,0 +1,171 @@
+{
+	var CtlFile = Java.type("br.ufmg.dcc.nanocomp.ctl.parser.CtlFile");
+	var CtlClass = Java.type("br.ufmg.dcc.nanocomp.ctl.CtlClass");
+	var CtlList = Java.type("br.ufmg.dcc.nanocomp.ctl.CtlList");
+	var CtlDeclaredVariable = Java.type("br.ufmg.dcc.nanocomp.ctl.defines.CtlDeclaredVariable");
+	var CtlConstant = Java.type("br.ufmg.dcc.nanocomp.ctl.CtlConstant");
+	var CtlSimpleFunction = Java.type("br.ufmg.dcc.nanocomp.ctl.defines.CtlSimpleFunction");
+	var CtlCompositeFunction = Java.type("br.ufmg.dcc.nanocomp.ctl.defines.CtlCompositeFunction");
+	var CtlSimpleFunctionDeclaration = Java.type("br.ufmg.dcc.nanocomp.ctl.defines.CtlSimpleFunctionDeclaration");
+	var CtlCompositeFunctionDeclaration = Java.type("br.ufmg.dcc.nanocomp.ctl.defines.CtlCompositeFunctionDeclaration");
+	var CtlDouble = Java.type("br.ufmg.dcc.nanocomp.ctl.number.CtlDouble");
+	var CtlInteger = Java.type("br.ufmg.dcc.nanocomp.ctl.number.CtlInteger");
+	var CtlComplex = Java.type("br.ufmg.dcc.nanocomp.ctl.number.CtlComplex");
+	var CtlVector3 = Java.type("br.ufmg.dcc.nanocomp.ctl.CtlVector3");
+	var CtlVector = Java.type("br.ufmg.dcc.nanocomp.ctl.CtlVector");
+	var CtlVector3Property = Java.type("br.ufmg.dcc.nanocomp.ctl.CtlVector3Property");
+  
+	var Functions = {
+		"+":Java.type("br.ufmg.dcc.nanocomp.ctl.functions.Sum"),
+		"-":Java.type("br.ufmg.dcc.nanocomp.ctl.functions.Sub"),
+		"*":Java.type("br.ufmg.dcc.nanocomp.ctl.functions.Mul"),
+		"/":Java.type("br.ufmg.dcc.nanocomp.ctl.functions.Div")
+	}
+	
+    var memory = {};
+    var argsMemory = {};
+    var fname;
+}
+
+File
+	= _ values:Variable* _ {
+		return new CtlFile(values,memory);
+	}
+
+Variable
+	= _ name:Id _ &{return argsMemory[name]!=undefined} {
+		return argsMemory[name];
+	}
+	/ _ name:Id _ &{return memory[name]!=undefined} {
+		return memory[name];
+	}
+	/_ value:Constant _ {return value}
+
+Constant
+	= Number
+	/ v:Class		{return new CtlConstant(v)}
+	/ v:List		{return new CtlConstant(v)}
+	/ v:Vector		{return new CtlConstant(v)}
+	/ Function
+	/ v:Id			{return new CtlConstant(v)}
+
+Vector
+	= "(" _ "vector3" __ x:Variable _ ")" {
+		return new CtlVector3(x);
+	}
+	/ "(" _ "vector3" __ x:Variable _ y:Variable _ ")" {
+		return new CtlVector3(x,y);
+	}
+	/ "(" _ "vector3" __ x:Variable _ y:Variable _ z:Variable _ ")" {
+		return new CtlVector3(x,y,z);
+	}
+	/  "(" _ "vector" __ values:Variable* _ ")" {
+		return new CtlVector(values);
+	}
+
+List
+	= "(" _ "list" __ values:Variable* _ ")" {
+		return new CtlList(values);
+	}
+
+Class
+	= "(" _ "make" __ name:Id _ values:Property* _ ")" {
+		var props = {};
+		for(var i in values){
+			var prop = values[i];
+			props[prop.name] = prop.value;
+		}
+		return new CtlClass(name,props);
+	}
+
+Property
+	=  _ "(" _ name:Id _ x:Variable _ ")" _ {
+		return {name:name,value:x};
+	}
+    / _ "(" _ name:Id _ x:Variable _ y:Variable _ ")" _ {
+		return {name:name,value:new CtlVector3Property(new CtlVector3(x,y))};
+	}
+    / _ "(" _ name:Id _ x:Variable _ y:Variable _ z:Variable _ ")" _ {
+		return {name:name,value:new CtlVector3Property(new CtlVector3(x,y,z))};
+	}
+
+Function
+	= DefineVariable
+	/ DefineFunction
+	/ SimpleFunction
+    / CompositeFunction
+
+DefineVariable
+	= "(" _ name:("define-param"/"define"/"set!"/"set-param!") __ id:Id _ value:Variable _ ")" {
+		memory[id] = value;
+		return new CtlSimpleFunction(name,[new CtlDeclaredVariable(id,value),value]);
+	}
+
+DefineFunction
+	= "(" _ name:"define" __ declaration:FunctionDeclaration _ body:Variable &{argsMemory={};return true}_ ")" {
+		declaration.body = body;
+		return new CtlSimpleFunction(name,[declaration,body]);
+	}
+
+FunctionDeclaration
+	= SimpleFunctionDeclaration
+	/ CompositeFunctionDeclaration
+
+CompositeFunctionDeclaration
+	= "(" _ inner:FunctionDeclaration _ args:Argument* _ ")" {
+		return memory[fname] = new CtlCompositeFunctionDeclaration(inner,args);
+	}
+
+SimpleFunctionDeclaration
+	= "(" _ name:Id _ args:Argument* _ ")" {
+		fname = name;
+		return memory[fname] = new CtlSimpleFunctionDeclaration(name,args);
+	}
+
+Argument
+	= _ name:Id _ {
+		return argsMemory[name] = new CtlDeclaredVariable(name);
+	}
+
+SimpleFunction
+	= "(" _ name:Id _&{return Functions[name]!=undefined} args:Variable* _ ")" {
+		return new Functions[name](args);
+	}
+	/ "(" _ name:Id _ args:Variable* _ ")" {
+		var dec = memory[name];
+		return new CtlSimpleFunction(name,args,dec?dec:null);
+	}
+
+CompositeFunction
+	= "(" _ func:Function _ args:Variable* _ ")" {
+		return new CtlCompositeFunction(func,args);
+	}
+
+Number
+	= Complex
+	/ Double
+	/ Integer
+
+Complex
+	= r:Real i:Real "i"							{ return new CtlComplex(r,i) }
+
+Real
+	= [-+]?([0-9]+'.')?[0-9]+([eE][-+]?[0-9]+)?		{ return parseFloat(text()) }
+
+Double
+	= [-+]?[0-9]+'.'[0-9]+([eE][-+]?[0-9]+)?		{ return new CtlDouble(text()) }
+	/ [-+]?[0-9]+[eE][-+]?[0-9]+					{ return new CtlDouble(text()) }
+    / "infinity"									{ return new CtlDouble(Infinity) }
+    / "no-size"										{ return new CtlDouble(NaN) }
+
+Integer
+	= [+-]? [0-9]+									{ return new CtlInteger(text()) }
+
+Id
+	= [^ \t\n\r;()]+ {return text()}
+
+_ "Space or Comment Optional"
+	= ((";"[^\n]*)? [ \t\n\r])*
+
+__ "Space or Comment Required"
+	= ((";"[^\n]*)? [ \t\n\r])+
